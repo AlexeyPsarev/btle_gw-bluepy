@@ -53,7 +53,7 @@ endif
 
 CXXFLAGS+=-Wall -Wno-unused-local-typedefs ${include_dirs} ${defines}
 CXXFLAGS+=-fdata-sections -ffunction-sections
-LDFLAGS+=-Wl,--gc-sections -pthread -L${ex_libs}
+LDFLAGS+=-Wl,--gc-sections -pthread -L${ex_libs} -lboost_system -lboost_thread-mt
 #LIBS+=-lboost_system
 
 examples: simple_dev simple_gw zigbee_gw btle_gw

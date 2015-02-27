@@ -6,10 +6,15 @@
 #ifndef __EXAMPLES_BTLE_GW_HPP_
 #define __EXAMPLES_BTLE_GW_HPP_
 
+#include <vector>
+#include <map>
+
 #include "bluepy.hpp"
 
 #include <DeviceHive/restful.hpp>
 #include <DeviceHive/websocket.hpp>
+#include <hive/bin.hpp>
+#include <hive/misc.hpp>
 #include "basic_app.hpp"
 
 // 'libbluetooth-dev' should be installed
@@ -44,6 +49,7 @@ class Application:
 {
     typedef basic_app::Application Base; ///< @brief The base type.
     typedef Application This; ///< @brief The type alias.
+    typedef json::Value (*FormattingCallback)(const String&);
 
 public:
 
@@ -656,6 +662,63 @@ public:
             }
         }
 
+        pthis->m_hexConverters["i8"] = &hexStringToNumber<Int8>;
+        pthis->m_hexConverters["u8"] = &hexStringToNumber<UInt8>;
+
+        pthis->m_hexConverters["i16be"] = &hexStringToNumber<Int16, true>;
+        pthis->m_hexConverters["i16le"] = &hexStringToNumber<Int16, false>;
+        pthis->m_hexConverters["i16"] = &hexStringToNumber<Int16, false>;
+        pthis->m_hexConverters["u16be"] = &hexStringToNumber<UInt16, true>;
+        pthis->m_hexConverters["u16le"] = &hexStringToNumber<UInt16, false>;
+        pthis->m_hexConverters["u16"] = &hexStringToNumber<UInt16, false>;
+
+        pthis->m_hexConverters["i32be"] = &hexStringToNumber<Int32, true>;
+        pthis->m_hexConverters["i32le"] = &hexStringToNumber<Int32, false>;
+        pthis->m_hexConverters["i32"] = &hexStringToNumber<Int32, false>;
+        pthis->m_hexConverters["u32be"] = &hexStringToNumber<UInt32, true>;
+        pthis->m_hexConverters["u32le"] = &hexStringToNumber<UInt32, false>;
+        pthis->m_hexConverters["u32"] = &hexStringToNumber<UInt32, false>;
+
+        pthis->m_hexConverters["i64be"] = &hexStringToNumber<Int64, true>;
+        pthis->m_hexConverters["i64le"] = &hexStringToNumber<Int64, false>;
+        pthis->m_hexConverters["i64"] = &hexStringToNumber<Int64, false>;
+        pthis->m_hexConverters["u64be"] = &hexStringToNumber<UInt64, true>;
+        pthis->m_hexConverters["u64le"] = &hexStringToNumber<UInt64, false>;
+        pthis->m_hexConverters["u64"] = &hexStringToNumber<UInt64, false>;
+
+        pthis->m_hexConverters["float"] = &hexStringToNumber<float>;
+        pthis->m_hexConverters["double"] = &hexStringToNumber<double>;
+
+        pthis->m_hexConverters["ascii"] = &hexStringToAscii;
+        pthis->m_hexConverters["utf8"] = &hexStringToUtf8;
+
+        pthis->m_hexConverters["ai8"] = &hexStringToArray<Int8>;
+        pthis->m_hexConverters["au8"] = &hexStringToArray<UInt8>;
+
+        pthis->m_hexConverters["ai16be"] = &hexStringToArray<Int16, true>;
+        pthis->m_hexConverters["ai16le"] = &hexStringToArray<Int16, false>;
+        pthis->m_hexConverters["ai16"] = &hexStringToArray<Int16, false>;
+        pthis->m_hexConverters["au16be"] = &hexStringToArray<UInt16, true>;
+        pthis->m_hexConverters["au16le"] = &hexStringToArray<UInt16, false>;
+        pthis->m_hexConverters["au16"] = &hexStringToArray<UInt16, false>;
+
+        pthis->m_hexConverters["ai32be"] = &hexStringToArray<Int32, true>;
+        pthis->m_hexConverters["ai32le"] = &hexStringToArray<Int32, false>;
+        pthis->m_hexConverters["ai32"] = &hexStringToArray<Int32, false>;
+        pthis->m_hexConverters["au32be"] = &hexStringToArray<UInt32, true>;
+        pthis->m_hexConverters["au32le"] = &hexStringToArray<UInt32, false>;
+        pthis->m_hexConverters["au32"] = &hexStringToArray<UInt32, false>;
+
+        pthis->m_hexConverters["ai64be"] = &hexStringToArray<Int64, true>;
+        pthis->m_hexConverters["ai64le"] = &hexStringToArray<Int64, false>;
+        pthis->m_hexConverters["ai64"] = &hexStringToArray<Int64, false>;
+        pthis->m_hexConverters["au64be"] = &hexStringToArray<UInt64, true>;
+        pthis->m_hexConverters["au64le"] = &hexStringToArray<UInt64, false>;
+        pthis->m_hexConverters["au64"] = &hexStringToArray<UInt64, false>;
+
+        pthis->m_hexConverters["afloat"] = &hexStringToArray<float>;
+        pthis->m_hexConverters["adouble"] = &hexStringToArray<double>;
+
         return pthis;
     }
 
@@ -954,6 +1017,9 @@ private:
             if (!helper) throw std::runtime_error("cannot create helper");
 
             helper->status(boost::bind(&This::onHelperStatus, shared_from_this(), _1, command, helper));
+            basic_app::DelayedTask::SharedPtr timeout = setHelperTimeout(helper, command);
+            if (timeout.get() != 0)
+                m_xgattTimeouts[command] = timeout;
             m_pendedCommands[helper].push_back(command);
             return false; // pended
         }
@@ -964,6 +1030,9 @@ private:
             if (!helper) throw std::runtime_error("cannot create helper");
 
             helper->connect(boost::bind(&This::onHelperConnect, shared_from_this(), _1, command, helper));
+            basic_app::DelayedTask::SharedPtr timeout = setHelperTimeout(helper, command);
+            if (timeout.get() != 0)
+                m_xgattTimeouts[command] = timeout;
             m_pendedCommands[helper].push_back(command);
             return false; // pended
         }
@@ -974,6 +1043,9 @@ private:
             if (!helper) throw std::runtime_error("cannot create helper");
 
             helper->disconnect(boost::bind(&This::onHelperConnect, shared_from_this(), _1, command, helper));
+            basic_app::DelayedTask::SharedPtr timeout = setHelperTimeout(helper, command);
+            if (timeout.get() != 0)
+                m_xgattTimeouts[command] = timeout;
             m_pendedCommands[helper].push_back(command);
             return false; // pended
         }
@@ -985,6 +1057,9 @@ private:
             if (!helper) throw std::runtime_error("cannot create helper");
 
             helper->services(boost::bind(&This::onHelperServices, shared_from_this(), _1, _2, command, helper));
+            basic_app::DelayedTask::SharedPtr timeout = setHelperTimeout(helper, command);
+            if (timeout.get() != 0)
+                m_xgattTimeouts[command] = timeout;
             m_pendedCommands[helper].push_back(command);
             return false; // pended
         }
@@ -998,6 +1073,9 @@ private:
             // TODO: start/end/uuid arguments
 
             helper->characteristics(boost::bind(&This::onHelperCharacteristics, shared_from_this(), _1, _2, command, helper));
+            basic_app::DelayedTask::SharedPtr timeout = setHelperTimeout(helper, command);
+            if (timeout.get() != 0)
+                m_xgattTimeouts[command] = timeout;
             m_pendedCommands[helper].push_back(command);
             return false; // pended
         }
@@ -1012,6 +1090,9 @@ private:
             UInt32 handle = command->params.get("handle", json::Value::null()).asUInt32();
 
             helper->readChar(handle, boost::bind(&This::onHelperCharRead, shared_from_this(), _1, _2, command, helper));
+            basic_app::DelayedTask::SharedPtr timeout = setHelperTimeout(helper, command);
+            if (timeout.get() != 0)
+                m_xgattTimeouts[command] = timeout;
             m_pendedCommands[helper].push_back(command);
             return false; // pended
         }
@@ -1028,6 +1109,9 @@ private:
             bool withResp = command->params.get("withResponse", false).asBool();
 
             helper->writeChar(handle, value, withResp, boost::bind(&This::onHelperCharWrite, shared_from_this(), _1, command, helper));
+            basic_app::DelayedTask::SharedPtr timeout = setHelperTimeout(helper, command);
+            if (timeout.get() != 0)
+                m_xgattTimeouts[command] = timeout;
             m_pendedCommands[helper].push_back(command);
             return false; // pended
         }
@@ -1093,6 +1177,19 @@ private:
             throw std::runtime_error("Unknown command");
 
         return true; // processed
+    }
+
+    basic_app::DelayedTask::SharedPtr setHelperTimeout(bluepy::PeripheralPtr helper, devicehive::CommandPtr command)
+    {
+        const int def_timeout = 0;
+        const int timeout = command->params.get("timeout", def_timeout).asUInt8(); // limited range [0..255]
+        basic_app::DelayedTask::SharedPtr result;
+        if (timeout != 0)
+        {
+            result = m_delayed->callLater(timeout*1000, boost::bind(&This::onHelperCommandTimeout,
+                shared_from_this(), command, helper));
+        }
+        return result;
     }
 
 private:
@@ -1707,6 +1804,16 @@ private:
         }
     }
 
+    void cancelTimeout(devicehive::CommandPtr cmd)
+    {
+        std::map<devicehive::CommandPtr, basic_app::DelayedTask::SharedPtr>::iterator
+            it = m_xgattTimeouts.find(cmd);
+        if (it != m_xgattTimeouts.end())
+        {
+            it->second->cancel();
+            m_xgattTimeouts.erase(it);
+        }
+    }
 
     /**
      * @brief Update 'status' command.
@@ -1734,6 +1841,7 @@ private:
         }
 
         m_pendedCommands[helper].remove(cmd);
+        cancelTimeout(cmd);
         if (m_device && m_service)
             m_service->asyncUpdateCommand(m_device, cmd);
     }
@@ -1756,6 +1864,7 @@ private:
         }
 
         m_pendedCommands[helper].remove(cmd);
+        cancelTimeout(cmd);
         if (m_device && m_service)
             m_service->asyncUpdateCommand(m_device, cmd);
     }
@@ -1781,6 +1890,7 @@ private:
         }
 
         m_pendedCommands[helper].remove(cmd);
+        cancelTimeout(cmd);
         if (m_device && m_service)
             m_service->asyncUpdateCommand(m_device, cmd);
     }
@@ -1806,8 +1916,120 @@ private:
         }
 
         m_pendedCommands[helper].remove(cmd);
+        cancelTimeout(cmd);
         if (m_device && m_service)
             m_service->asyncUpdateCommand(m_device, cmd);
+    }
+
+    static String hexToBytes(const std::string& hex)
+    {
+        size_t len = hex.length();
+        if (len % 2 != 0)
+            throw std::runtime_error("invalid hex string");
+
+        char high; // high nibble
+        char low; // low nibble
+        size_t dumpLen = len / 2;
+        String dump(dumpLen, 0);
+
+        for (size_t i = 0; i < dumpLen; ++i)
+        {
+            high = hive::misc::hex2int(hex[2 * i]);
+            if (high == -1)
+                throw std::runtime_error("invalid hex string");
+            low = hive::misc::hex2int(hex[2 * i + 1]);
+            if (low == -1)
+                throw std::runtime_error("invalid hex string");
+            dump[i] = (high << 4) | low;
+        }
+        return dump;
+    }
+
+    template <typename T, bool isBE>
+    static json::Value hexStringToNumber(const String& input)
+    {
+        size_t len = input.length();
+        if (len != sizeof(T) * 2)
+            throw std::runtime_error("invalid hex string");
+        std::string dump = hexToBytes(input);
+        T result;
+        dump.copy(reinterpret_cast<char*>(&result), sizeof(T), 0);
+
+        return (isBE) ? hive::misc::h2be(result) : hive::misc::h2le(result);
+    }
+
+    template <typename T>
+    static json::Value hexStringToNumber(const String& input)
+    {
+        size_t len = input.length();
+        if (len != sizeof(T) * 2)
+            throw std::runtime_error("invalid hex string");
+        std::string dump = hexToBytes(input);
+        T result;
+        dump.copy(reinterpret_cast<char*>(&result), sizeof(T), 0);
+
+        return result;
+    }
+
+    template <typename T, bool isBE>
+    static json::Value hexStringToArray(const String& hexStr)
+    {
+        size_t len = hexStr.length();
+        size_t hexInEl = sizeof(T) * 2;
+        if (len % hexInEl != 0)
+            throw std::runtime_error("invalid hex string");
+
+        json::Value arr(json::Value::TYPE_ARRAY);
+        std::string dump = hexToBytes(hexStr);
+        T elem;
+        size_t arrSize = len / hexInEl;
+        for (size_t i = 0; i < arrSize; ++i)
+        {
+            dump.copy(reinterpret_cast<char*>(&elem), sizeof(T), i * sizeof(T));
+            if (isBE)
+                arr.append(hive::misc::h2be(elem));
+            else
+                arr.append(hive::misc::h2le(elem));
+        }
+        return arr;
+    }
+
+    template <typename T>
+    static json::Value hexStringToArray(const String& hexStr)
+    {
+        size_t len = hexStr.length();
+        size_t hexInEl = sizeof(T) * 2;
+        if (len % hexInEl != 0)
+            throw std::runtime_error("invalid hex string");
+
+        json::Value arr(json::Value::TYPE_ARRAY);
+        std::string dump = hexToBytes(hexStr);
+        T elem;
+        size_t arrSize = len / hexInEl;
+        for (size_t i = 0; i < arrSize; ++i)
+        {
+            dump.copy(reinterpret_cast<char*>(&elem), sizeof(T), i * sizeof(T));
+            arr.append(elem);
+        }
+        return arr;
+    }
+
+    static json::Value hexStringToUtf8(const String& input)
+    {
+        String result = hexToBytes(input);
+        return result;
+    }
+
+    static json::Value hexStringToAscii(const String& input)
+    {
+        String result = hexToBytes(input);
+        size_t len = result.length();
+        for (size_t i = 0; i < len; ++i)
+        {
+            if ((result[i] < 32) || (result[i] > 126))
+                result[i] = '?';
+        }
+        return result;
     }
 
     /**
@@ -1819,7 +2041,30 @@ private:
         {
             //cmd->result["handle"] = handle;
             cmd->result["valueHex"] = value;
-            cmd->status = "Success";
+            String format = cmd->params.get("format", json::Value::null()).asString();
+            String lcformat(format.length(), 0);
+            std::transform(format.begin(), format.end(), lcformat.begin(), tolower);
+
+            std::map<std::string, FormattingCallback>::iterator it = m_hexConverters.find(lcformat);
+            if (it != m_hexConverters.end())
+            {
+                try
+                {
+                    cmd->result[format] = it->second(value);
+                    cmd->status = "Success";
+                }
+                catch (const std::exception& ex)
+                {
+                    HIVELOG_ERROR(m_log, "handle command error: "
+                        << ex.what());
+                    cmd->status = "Failed";
+                    cmd->result = ex.what();
+                }
+            }
+            else // unknown format
+            {
+                cmd->status = "Success";
+            }
         }
         else
         {
@@ -1828,6 +2073,7 @@ private:
         }
 
         m_pendedCommands[helper].remove(cmd);
+        cancelTimeout(cmd);
         if (m_device && m_service)
             m_service->asyncUpdateCommand(m_device, cmd);
     }
@@ -1850,7 +2096,18 @@ private:
         }
 
         m_pendedCommands[helper].remove(cmd);
+        cancelTimeout(cmd);
         if (m_device && m_service)
+            m_service->asyncUpdateCommand(m_device, cmd);
+    }
+
+    void onHelperCommandTimeout(devicehive::CommandPtr cmd, bluepy::PeripheralPtr helper)
+    {
+        helper->stop();
+        HIVELOG_ERROR(m_log, "Helper " + cmd->name + " command is terminated by timeout");
+        cmd->status = "Failed";
+        cmd->result = "Timeout";
+        if (m_service && m_device)
             m_service->asyncUpdateCommand(m_device, cmd);
     }
 
@@ -1860,6 +2117,8 @@ private:
 
     devicehive::CommandPtr m_pendingScanCmd;
     basic_app::DelayedTask::SharedPtr m_pendingScanCmdTimeout;
+    std::map<devicehive::CommandPtr, basic_app::DelayedTask::SharedPtr> m_xgattTimeouts;
+    std::map<std::string, FormattingCallback> m_hexConverters;
 
 private:
     devicehive::IDeviceServicePtr m_service; ///< @brief The cloud service.
